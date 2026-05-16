@@ -12,6 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { SiteDetail } from './site-detail'
 
 export interface SiteRow {
   id: string
@@ -21,6 +22,8 @@ export interface SiteRow {
   county: string | null
   state: string | null
   zip: string | null
+  lat: number | null
+  lng: number | null
   vertical: string
   subVertical: string | null
   confidence: string
@@ -128,6 +131,9 @@ export function SiteTable({
   sortDirection,
   onSortChange,
 }: SiteTableProps) {
+  const [detailSiteId, setDetailSiteId] = useState<string | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+
   const allSelected =
     sites.length > 0 && sites.every((s) => selectedIds.has(s.id))
 
@@ -240,8 +246,13 @@ export function SiteTable({
               <TableRow
                 key={site.id}
                 data-state={selectedIds.has(site.id) ? 'selected' : undefined}
+                className="cursor-pointer"
+                onClick={() => {
+                  setDetailSiteId(site.id)
+                  setDetailOpen(true)
+                }}
               >
-                <TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={selectedIds.has(site.id)}
@@ -297,6 +308,15 @@ export function SiteTable({
           </Button>
         </div>
       </div>
+
+      <SiteDetail
+        siteId={detailSiteId}
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false)
+          setDetailSiteId(null)
+        }}
+      />
     </div>
   )
 }
