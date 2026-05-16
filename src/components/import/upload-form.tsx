@@ -70,7 +70,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
   const [loading, setLoading] = useState(false)
   const [headers, setHeaders] = useState<string[]>([])
   const [sampleRows, setSampleRows] = useState<Record<string, string>[]>([])
-  const [progress, setProgress] = useState({ current: 0, total: 0, classified: 0, needsReview: 0, errors: 0 })
+  const [progress, setProgress] = useState({ current: 0, total: 0, classified: 0, needsReview: 0, enriched: 0, errors: 0 })
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [headerIdx, setHeaderIdx] = useState(0)
@@ -82,7 +82,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
     setResult(null)
     setError(null)
     setStep('upload')
-    setProgress({ current: 0, total: 0, classified: 0, needsReview: 0, errors: 0 })
+    setProgress({ current: 0, total: 0, classified: 0, needsReview: 0, enriched: 0, errors: 0 })
   }
 
   const handleUpload = async () => {
@@ -123,6 +123,9 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
           state: autoMapping.state || '',
           licenseType: autoMapping.licenseType || '',
           vertical: autoMapping.vertical || '',
+          bedCount: autoMapping.bedCount || '',
+          lat: autoMapping.lat || '',
+          lng: autoMapping.lng || '',
         }
         setStep('importing')
         setLoading(false)
@@ -172,10 +175,11 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
       const importData = await importRes.json()
       const importId = importData.importId || 'batch'
 
-      setProgress({ current: 0, total: totalRecords, classified: 0, needsReview: 0, errors: 0 })
+      setProgress({ current: 0, total: totalRecords, classified: 0, needsReview: 0, enriched: 0, errors: 0 })
 
       let totalClassified = 0
       let totalNeedsReview = 0
+      let totalEnriched = 0
       const allErrors: string[] = []
 
       const totalBatches = Math.ceil(dataLines.length / BATCH_SIZE)
@@ -197,6 +201,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
           const batchResult = await res.json()
           totalClassified += batchResult.classified || 0
           totalNeedsReview += batchResult.needsReview || 0
+          totalEnriched += batchResult.enriched || 0
           if (batchResult.errors) allErrors.push(...batchResult.errors)
         }
 
@@ -205,6 +210,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
           total: totalRecords,
           classified: totalClassified,
           needsReview: totalNeedsReview,
+          enriched: totalEnriched,
           errors: allErrors.length,
         })
       }
@@ -325,7 +331,8 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
                 />
               </div>
               <div className="flex gap-4 text-sm text-muted-foreground">
-                <span>Classified: <strong>{progress.classified.toLocaleString()}</strong></span>
+                <span>New: <strong>{progress.classified.toLocaleString()}</strong></span>
+                {progress.enriched > 0 && <span>Enriched: <strong>{progress.enriched.toLocaleString()}</strong></span>}
                 {progress.needsReview > 0 && <span>Needs Review: <strong>{progress.needsReview.toLocaleString()}</strong></span>}
                 {progress.errors > 0 && <span className="text-destructive">Errors: <strong>{progress.errors}</strong></span>}
               </div>

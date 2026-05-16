@@ -7,6 +7,7 @@ import { classifyGeneric } from '@/lib/classifiers/generic'
 import type { GenericSourceType } from '@/lib/classifiers/generic'
 import type { RawRecord } from '@/lib/classifiers/types'
 import type { SourceType } from '@/lib/import/parse-csv'
+import { eq, and, sql } from 'drizzle-orm'
 
 interface ColumnMapping {
   name: string
@@ -17,6 +18,9 @@ interface ColumnMapping {
   state: string
   licenseType: string
   vertical: string
+  bedCount: string
+  lat: string
+  lng: string
 }
 
 function remapRecord(record: RawRecord, mapping: ColumnMapping): RawRecord {
@@ -36,6 +40,14 @@ function val(record: RawRecord, field: string): string {
   return String(record[field] || '').trim()
 }
 
+function numVal(record: RawRecord, field: string): number | null {
+  if (!field) return null
+  const v = record[field]
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return isNaN(n) ? null : n
+}
+
 function extractAddress(record: RawRecord, mapping?: ColumnMapping) {
   if (mapping) {
     return {
@@ -49,6 +61,10 @@ function extractAddress(record: RawRecord, mapping?: ColumnMapping) {
   return extractFallback(record)
 }
 
+function normalizeForMatch(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9]/g, '')
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { records, sourceType, importId, columnMapping } = await request.json() as {
@@ -60,10 +76,13 @@ export async function POST(request: NextRequest) {
 
     let classified = 0
     let needsReview = 0
+    let enriched = 0
     const errors: string[] = []
 
-    const siteBatch: (typeof sites.$inferInsert)[] = []
-    const srcBatch: (typeof sourceRecords.$inferInsert)[] = []
+    const newSites: (typeof sites.$inferInsert)[] = []
+    const newSrcRecords: (typeof sourceRecords.$inferInsert)[] = []
+    const updates: { id: string; data: Record<string, unknown> }[] = []
+    const updateSrcRecords: (typeof sourceRecords.$inferInsert)[] = []
 
     for (const record of records) {
       try {
@@ -75,51 +94,112 @@ export async function POST(request: NextRequest) {
             : classifyGeneric(classifierRecord, sourceType as GenericSourceType)
 
         const addr = extractAddress(record, columnMapping)
-
         if (!addr.name) continue
 
-        const siteId = ulid()
+        const bedCount = columnMapping ? numVal(record, columnMapping.bedCount) : null
+        const lat = columnMapping ? numVal(record, columnMapping.lat) : null
+        const lng = columnMapping ? numVal(record, columnMapping.lng) : null
 
-        siteBatch.push({
-          id: siteId,
-          name: addr.name,
-          address: addr.address,
-          city: addr.city,
-          county: addr.county,
-          zip: addr.zip,
-          vertical: classification.vertical || 'other',
-          subVertical: classification.subVertical || '',
-          confidence: classification.confidence || 'low',
-          status: classification.needsReview ? 'needs_review' : 'active',
-        })
+        const nameNorm = normalizeForMatch(addr.name)
+        const zipNorm = addr.zip ? addr.zip.slice(0, 5) : ''
 
-        srcBatch.push({
-          id: ulid(),
-          siteId,
-          sourceName: sourceType,
-          sourceRecordId: String(
-            record[columnMapping?.licenseType || 'License Number'] ||
-            record['FACID'] || record['CDSCode'] || ''
-          ),
-          rawData: JSON.stringify(record),
-        })
+        let existingSite = null
+        if (zipNorm) {
+          const matches = await db.select({ id: sites.id, sourceSystems: sites.sourceSystems })
+            .from(sites)
+            .where(and(
+              eq(sql`upper(replace(replace(replace(${sites.name}, ' ', ''), '.', ''), ',', ''))`, nameNorm),
+              eq(sites.zip, zipNorm)
+            ))
+            .limit(1)
+          existingSite = matches[0] || null
+        }
 
-        classified++
-        if (classification.needsReview) needsReview++
+        if (existingSite) {
+          const enrichFields: Record<string, unknown> = {
+            updatedAt: sql`datetime('now')`,
+          }
+          if (bedCount !== null) enrichFields.bedCount = bedCount
+          if (lat !== null) enrichFields.lat = lat
+          if (lng !== null) enrichFields.lng = lng
+          if (addr.address && !existingSite.sourceSystems?.includes(sourceType)) {
+            enrichFields.address = addr.address
+          }
+          if (addr.city) enrichFields.city = addr.city
+          if (addr.county) enrichFields.county = addr.county
+
+          const existingSources = existingSite.sourceSystems || ''
+          if (!existingSources.includes(sourceType)) {
+            enrichFields.sourceSystems = existingSources ? `${existingSources},${sourceType}` : sourceType
+          }
+
+          updates.push({ id: existingSite.id, data: enrichFields })
+          updateSrcRecords.push({
+            id: ulid(),
+            siteId: existingSite.id,
+            sourceName: sourceType,
+            sourceRecordId: String(
+              record[columnMapping?.licenseType || 'License Number'] ||
+              record['FACID'] || record['CDSCode'] || ''
+            ),
+            rawData: JSON.stringify(record),
+          })
+          enriched++
+        } else {
+          const siteId = ulid()
+          newSites.push({
+            id: siteId,
+            name: addr.name,
+            address: addr.address,
+            city: addr.city,
+            county: addr.county,
+            zip: addr.zip,
+            lat,
+            lng,
+            vertical: classification.vertical || 'other',
+            subVertical: classification.subVertical || '',
+            confidence: classification.confidence || 'low',
+            status: classification.needsReview ? 'needs_review' : 'active',
+            bedCount,
+            sourceSystems: sourceType,
+          })
+          newSrcRecords.push({
+            id: ulid(),
+            siteId,
+            sourceName: sourceType,
+            sourceRecordId: String(
+              record[columnMapping?.licenseType || 'License Number'] ||
+              record['FACID'] || record['CDSCode'] || ''
+            ),
+            rawData: JSON.stringify(record),
+          })
+          classified++
+          if (classification.needsReview) needsReview++
+        }
       } catch (err) {
         errors.push(`Row error: ${(err as Error).message}`)
       }
     }
 
-    if (siteBatch.length > 0) {
-      const CHUNK = 50
-      for (let i = 0; i < siteBatch.length; i += CHUNK) {
-        await db.insert(sites).values(siteBatch.slice(i, i + CHUNK))
-        await db.insert(sourceRecords).values(srcBatch.slice(i, i + CHUNK))
+    const CHUNK = 50
+    if (newSites.length > 0) {
+      for (let i = 0; i < newSites.length; i += CHUNK) {
+        await db.insert(sites).values(newSites.slice(i, i + CHUNK))
+        await db.insert(sourceRecords).values(newSrcRecords.slice(i, i + CHUNK))
       }
     }
 
-    return NextResponse.json({ classified, needsReview, errors: errors.slice(0, 5) })
+    for (const upd of updates) {
+      await db.update(sites).set(upd.data).where(eq(sites.id, upd.id))
+    }
+
+    if (updateSrcRecords.length > 0) {
+      for (let i = 0; i < updateSrcRecords.length; i += CHUNK) {
+        await db.insert(sourceRecords).values(updateSrcRecords.slice(i, i + CHUNK))
+      }
+    }
+
+    return NextResponse.json({ classified, needsReview, enriched, errors: errors.slice(0, 5) })
   } catch (err) {
     console.error('Batch import error:', err)
     return NextResponse.json(

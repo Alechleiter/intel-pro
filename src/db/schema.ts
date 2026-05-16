@@ -25,6 +25,10 @@ export const sites = sqliteTable('sites', {
   status: text('status').notNull().default('active'),
   siteCount: integer('site_count'),
   chainId: text('chain_id').references(() => chains.id),
+  bedCount: integer('bed_count'),
+  facilityType: text('facility_type'),
+  licenseNumber: text('license_number'),
+  sourceSystems: text('source_systems'),
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
 })

@@ -22,6 +22,9 @@ export interface ColumnMapping {
   state: string
   licenseType: string
   vertical: string
+  bedCount: string
+  lat: string
+  lng: string
   [key: string]: string
 }
 
@@ -44,6 +47,9 @@ const OPTIONAL_FIELDS = [
   { key: 'state', label: 'State', hint: 'Usually CA', required: false },
   { key: 'licenseType', label: 'License Type', hint: 'For ABC data', required: false },
   { key: 'vertical', label: 'Category', hint: 'If already categorized', required: false },
+  { key: 'bedCount', label: 'Bed Count', hint: 'Number of beds', required: false },
+  { key: 'lat', label: 'Latitude', hint: '', required: false },
+  { key: 'lng', label: 'Longitude', hint: '', required: false },
 ]
 
 const AUTO_MATCH_PATTERNS: Record<string, RegExp[]> = {
@@ -77,6 +83,12 @@ const AUTO_MATCH_PATTERNS: Record<string, RegExp[]> = {
     /^category$/i, /^vertical$/i, /^classification$/i,
     /bed[_\s]*capacity[_\s]*type/i,
   ],
+  bedCount: [
+    /total[_\s]*number[_\s]*beds/i, /bed[_\s]*capacity$/i,
+    /^beds$/i, /^bed[_\s]*count$/i, /facility[_\s]*capacity/i,
+  ],
+  lat: [/^lat(itude)?$/i],
+  lng: [/^lng$/i, /^lon(gitude)?$/i, /^long$/i],
 }
 
 export function autoMatchHeaders(headers: string[]): Partial<ColumnMapping> {
