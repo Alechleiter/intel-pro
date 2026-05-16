@@ -15,6 +15,15 @@ const SOURCE_VERTICAL_MAP: Record<GenericSourceType, { vertical: Vertical; subVe
 
 export function classifyGeneric(record: RawRecord, sourceType: GenericSourceType): ClassificationResult {
   const mapping = SOURCE_VERTICAL_MAP[sourceType]
+  if (!mapping) {
+    return {
+      vertical: 'other',
+      subVertical: '',
+      confidence: 'low',
+      needsReview: true,
+      reasons: [`Unknown source type: ${sourceType}`],
+    }
+  }
   return {
     vertical: mapping.vertical,
     subVertical: mapping.subVertical,

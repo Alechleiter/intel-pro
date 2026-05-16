@@ -86,6 +86,7 @@ const AUTO_MATCH_PATTERNS: Record<string, RegExp[]> = {
   bedCount: [
     /total[_\s]*number[_\s]*beds/i, /bed[_\s]*capacity$/i,
     /^beds$/i, /^bed[_\s]*count$/i, /facility[_\s]*capacity/i,
+    /^capacity$/i,
   ],
   lat: [/^lat(itude)?$/i],
   lng: [/^lng$/i, /^lon(gitude)?$/i, /^long$/i],

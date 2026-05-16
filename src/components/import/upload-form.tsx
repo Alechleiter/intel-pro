@@ -366,7 +366,11 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
 function detectSource(headers: string[]): string {
   const sigs: Record<string, string> = {
     'License Type': 'ABC', 'LIC_TYPE': 'ABC', 'Lic Type': 'ABC',
+    'DBA Name': 'ABC', 'Prem Addr 1': 'ABC',
     'FACID': 'CalHHS',
+    'FACILITY_NAME': 'CalHHS', 'DBA_ADDRESS1': 'CalHHS',
+    'CAPACITY': 'CalHHS', 'FAC_FDR': 'CalHHS',
+    'facility_name': 'RCFE',
     'CDSCode': 'CDE_PUBLIC',
     'SNAP Store Name': 'SNAP',
     'HUD Property Name': 'HUD',
@@ -376,7 +380,7 @@ function detectSource(headers: string[]): string {
     const trimmed = h.trim().replace(/^"/, '').replace(/"$/, '')
     if (sigs[trimmed]) return sigs[trimmed]
   }
-  return 'UNKNOWN'
+  return 'CalHHS'
 }
 
 function findHeaderLine(lines: string[]): number {
