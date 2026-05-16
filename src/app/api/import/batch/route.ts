@@ -21,7 +21,6 @@ interface ColumnMapping {
 
 function remapRecord(record: RawRecord, mapping: ColumnMapping): RawRecord {
   const remapped: RawRecord = { ...record }
-
   if (mapping.name) remapped['Premises Name'] = record[mapping.name]
   if (mapping.address) remapped['Premises Address'] = record[mapping.address]
   if (mapping.city) remapped['City'] = record[mapping.city]
@@ -29,8 +28,12 @@ function remapRecord(record: RawRecord, mapping: ColumnMapping): RawRecord {
   if (mapping.zip) remapped['Zip Code'] = record[mapping.zip]
   if (mapping.state) remapped['State'] = record[mapping.state]
   if (mapping.licenseType) remapped['License Type'] = record[mapping.licenseType]
-
   return remapped
+}
+
+function val(record: RawRecord, field: string): string {
+  if (!field) return ''
+  return String(record[field] || '').trim()
 }
 
 function extractAddress(record: RawRecord, mapping?: ColumnMapping) {
@@ -46,11 +49,6 @@ function extractAddress(record: RawRecord, mapping?: ColumnMapping) {
   return extractFallback(record)
 }
 
-function val(record: RawRecord, field: string): string {
-  if (!field) return ''
-  return String(record[field] || '').trim()
-}
-
 export async function POST(request: NextRequest) {
   try {
     const { records, sourceType, importId, columnMapping } = await request.json() as {
@@ -64,6 +62,9 @@ export async function POST(request: NextRequest) {
     let needsReview = 0
     const errors: string[] = []
 
+    const siteBatch: (typeof sites.$inferInsert)[] = []
+    const srcBatch: (typeof sourceRecords.$inferInsert)[] = []
+
     for (const record of records) {
       try {
         const classifierRecord = columnMapping ? remapRecord(record, columnMapping) : record
@@ -75,14 +76,11 @@ export async function POST(request: NextRequest) {
 
         const addr = extractAddress(record, columnMapping)
 
-        if (!addr.name) {
-          errors.push(`Skipped row: no site name`)
-          continue
-        }
+        if (!addr.name) continue
 
         const siteId = ulid()
 
-        await db.insert(sites).values({
+        siteBatch.push({
           id: siteId,
           name: addr.name,
           address: addr.address,
@@ -95,7 +93,7 @@ export async function POST(request: NextRequest) {
           status: classification.needsReview ? 'needs_review' : 'active',
         })
 
-        await db.insert(sourceRecords).values({
+        srcBatch.push({
           id: ulid(),
           siteId,
           sourceName: sourceType,
@@ -110,6 +108,14 @@ export async function POST(request: NextRequest) {
         if (classification.needsReview) needsReview++
       } catch (err) {
         errors.push(`Row error: ${(err as Error).message}`)
+      }
+    }
+
+    if (siteBatch.length > 0) {
+      const CHUNK = 50
+      for (let i = 0; i < siteBatch.length; i += CHUNK) {
+        await db.insert(sites).values(siteBatch.slice(i, i + CHUNK))
+        await db.insert(sourceRecords).values(srcBatch.slice(i, i + CHUNK))
       }
     }
 

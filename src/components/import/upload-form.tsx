@@ -53,7 +53,7 @@ const SOURCE_OPTIONS = [
 ]
 
 const REQUIRED_KEYS = ['name']
-const BATCH_SIZE = 200
+const BATCH_SIZE = 500
 
 interface UploadFormProps {
   onPreview: (data: PreviewData, csvText: string) => void
