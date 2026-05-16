@@ -12,24 +12,22 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select'
-import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { ColumnMapper, type ColumnMapping } from './column-mapper'
-
-interface PreviewRow {
-  name: string
-  address: string
-  city: string
-  zip: string
-  vertical: string
-  subVertical: string
-  confidence: string
-  status: string
-}
+import { Upload, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { ColumnMapper, type ColumnMapping, autoMatchHeaders } from './column-mapper'
 
 interface PreviewData {
   sourceType: string
   totalRecords: number
-  previewRows: PreviewRow[]
+  previewRows: {
+    name: string
+    address: string
+    city: string
+    zip: string
+    vertical: string
+    subVertical: string
+    confidence: string
+    status: string
+  }[]
 }
 
 interface ImportResult {
@@ -53,6 +51,7 @@ const SOURCE_OPTIONS = [
   { value: 'PHA', label: 'PHA' },
 ]
 
+const REQUIRED_KEYS = ['name', 'address', 'city', 'zip']
 const BATCH_SIZE = 200
 
 interface UploadFormProps {
@@ -70,7 +69,6 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
   const [loading, setLoading] = useState(false)
   const [headers, setHeaders] = useState<string[]>([])
   const [sampleRows, setSampleRows] = useState<Record<string, string>[]>([])
-  const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null)
   const [progress, setProgress] = useState({ current: 0, total: 0, classified: 0, needsReview: 0, errors: 0 })
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -82,11 +80,10 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
     setResult(null)
     setError(null)
     setStep('upload')
-    setColumnMapping(null)
     setProgress({ current: 0, total: 0, classified: 0, needsReview: 0, errors: 0 })
   }
 
-  const handleMapColumns = async () => {
+  const handleUpload = async () => {
     if (!file) return
     setLoading(true)
     setError(null)
@@ -98,59 +95,49 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
       const parsed = parseFirstRows(text, 5)
       setHeaders(parsed.headers)
       setSampleRows(parsed.rows)
-      setStep('mapping')
+
+      const autoMapping = autoMatchHeaders(parsed.headers)
+      const allRequiredMapped = REQUIRED_KEYS.every(k => autoMapping[k])
+
+      if (allRequiredMapped) {
+        const fullMapping: ColumnMapping = {
+          name: autoMapping.name || '',
+          address: autoMapping.address || '',
+          city: autoMapping.city || '',
+          county: autoMapping.county || '',
+          zip: autoMapping.zip || '',
+          state: autoMapping.state || '',
+          licenseType: autoMapping.licenseType || '',
+          vertical: autoMapping.vertical || '',
+        }
+        setStep('importing')
+        setLoading(false)
+        await runBatchImport(fullMapping, text)
+      } else {
+        setStep('mapping')
+        setLoading(false)
+      }
     } catch (err) {
       setError((err as Error).message)
-    } finally {
       setLoading(false)
     }
   }
 
   const handleMappingConfirm = async (mapping: ColumnMapping) => {
-    setColumnMapping(mapping)
     setStep('importing')
-    await runBatchImport(mapping)
+    await runBatchImport(mapping, csvText)
   }
 
   const handleMappingCancel = () => {
     setStep('upload')
-    setColumnMapping(null)
   }
 
-  const handlePreview = async () => {
-    if (!file) return
-    setLoading(true)
+  const runBatchImport = async (mapping: ColumnMapping, text: string) => {
     setError(null)
     setResult(null)
 
     try {
-      const text = await file.text()
-      const res = await fetch('/api/import/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvText: text.slice(0, 50000), sourceOverride }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Preview failed')
-      }
-
-      const data: PreviewData = await res.json()
-      onPreview(data, text)
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const runBatchImport = async (mapping: ColumnMapping) => {
-    setError(null)
-    setResult(null)
-
-    try {
-      const lines = csvText.split('\n')
+      const lines = text.split('\n')
       const dataLines = lines.slice(1).filter(line => line.trim().length > 0)
       const totalRecords = dataLines.length
 
@@ -162,7 +149,6 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
       const parsedHeaders = parseCSVLine(headerLine)
       const sourceType = sourceOverride !== 'auto' ? sourceOverride : detectSource(parsedHeaders)
 
-      // Create import record
       const importRes = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -227,7 +213,6 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
 
   return (
     <div className="space-y-4">
-      {/* Step 1: File Upload */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -235,7 +220,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
             Upload CSV
           </CardTitle>
           <CardDescription>
-            Upload a CSV file. You'll map columns before importing.
+            Upload a CSV file. Columns are auto-detected — you only map manually if needed.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -269,32 +254,23 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
               </div>
             </div>
 
-            <div className="flex gap-2">
-              <Button
-                onClick={handleMapColumns}
-                disabled={!file || loading || step === 'importing'}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Reading file...
-                  </>
-                ) : (
-                  <>
-                    <Upload />
-                    Upload & Map Columns
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handlePreview}
-                disabled={!file || loading || step === 'importing'}
-              >
-                <FileText />
-                Quick Preview
-              </Button>
-            </div>
+            <Button
+              onClick={handleUpload}
+              disabled={!file || loading || step === 'importing'}
+              className="w-fit"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  Reading file...
+                </>
+              ) : (
+                <>
+                  <Upload />
+                  Import
+                </>
+              )}
+            </Button>
 
             {error && (
               <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -306,7 +282,6 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
         </CardContent>
       </Card>
 
-      {/* Step 2: Column Mapping */}
       {step === 'mapping' && (
         <ColumnMapper
           headers={headers}
@@ -316,7 +291,6 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
         />
       )}
 
-      {/* Step 3: Progress */}
       {step === 'importing' && progress.total > 0 && (
         <Card>
           <CardContent className="pt-6">
@@ -345,7 +319,6 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
         </Card>
       )}
 
-      {/* Step 4: Results */}
       {result && (
         <Card className="border-green-500/50">
           <CardContent className="pt-6">

@@ -71,7 +71,7 @@ const AUTO_MATCH_PATTERNS: Record<string, RegExp[]> = {
   ],
 }
 
-function autoMatchHeaders(headers: string[]): Partial<ColumnMapping> {
+export function autoMatchHeaders(headers: string[]): Partial<ColumnMapping> {
   const mapping: Partial<ColumnMapping> = {}
   const used = new Set<string>()
 
@@ -98,7 +98,7 @@ export function ColumnMapper({ headers, sampleRows, onConfirm, onCancel }: Colum
   const requiredMapped = REQUIRED_FIELDS.filter(f => mapping[f.key]).length
 
   const updateMapping = (field: string, header: string | null) => {
-    setMapping(prev => ({ ...prev, [field]: !header || header === '__none__' ? '' : header }))
+    setMapping(prev => ({ ...prev, [field]: !header || header === 'none' ? '' : header }))
   }
 
   const isValid = REQUIRED_FIELDS.every(f => mapping[f.key])
@@ -240,7 +240,9 @@ function FieldRow({
   autoMatched: boolean
   required: boolean
 }) {
-  const hasValue = value && value !== '__none__'
+  const hasValue = !!value
+
+  const noneLabel = required ? 'Select a column...' : 'None'
 
   return (
     <div className="flex items-center gap-3">
@@ -253,13 +255,13 @@ function FieldRow({
       </div>
       <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
       <div className="w-56">
-        <Select value={value || '__none__'} onValueChange={onChange}>
+        <Select value={value || 'none'} onValueChange={onChange}>
           <SelectTrigger className={`w-full ${required && !hasValue ? 'border-destructive/50' : ''}`}>
-            <SelectValue placeholder="Select column..." />
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__none__">
-              {required ? '— Select a column —' : '— None —'}
+            <SelectItem value="none">
+              {noneLabel}
             </SelectItem>
             {headers.map(h => (
               <SelectItem key={h} value={h}>{h}</SelectItem>
