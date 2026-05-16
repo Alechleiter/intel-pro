@@ -8,59 +8,34 @@ import type { GenericSourceType } from '@/lib/classifiers/generic'
 import type { RawRecord } from '@/lib/classifiers/types'
 import type { SourceType } from '@/lib/import/parse-csv'
 
-function extractAddress(record: RawRecord, sourceType: SourceType) {
-  switch (sourceType) {
-    case 'ABC':
-      return {
-        name: String(record['Premises Name'] || ''),
-        address: String(record['Premises Address'] || record['Address'] || ''),
-        city: String(record['City'] || ''),
-        county: String(record['County'] || ''),
-        zip: String(record['Zip Code'] || record['Zip'] || ''),
-      }
-    case 'CalHHS':
-    case 'RCFE':
-      return {
-        name: String(record['FACILITY NAME'] || record['Facility Name'] || ''),
-        address: String(record['ADDRESS'] || record['Address'] || ''),
-        city: String(record['CITY'] || record['City'] || ''),
-        county: String(record['COUNTY'] || record['County'] || ''),
-        zip: String(record['ZIP'] || record['Zip'] || ''),
-      }
-    case 'CDE_PUBLIC':
-    case 'CDE_PRIVATE':
-      return {
-        name: String(record['School'] || record['SchoolName'] || ''),
-        address: String(record['Street'] || record['Address'] || ''),
-        city: String(record['City'] || ''),
-        county: String(record['County'] || ''),
-        zip: String(record['Zip'] || record['ZipCode'] || ''),
-      }
-    case 'SNAP':
-      return {
-        name: String(record['SNAP Store Name'] || record['Store Name'] || ''),
-        address: String(record['Address'] || ''),
-        city: String(record['City'] || ''),
-        county: String(record['County'] || ''),
-        zip: String(record['Zip'] || record['Zip Code'] || ''),
-      }
-    default:
-      return {
-        name: String(record['Name'] || record['name'] || record['FACILITY NAME'] || ''),
-        address: String(record['Address'] || record['address'] || record['ADDRESS'] || ''),
-        city: String(record['City'] || record['city'] || record['CITY'] || ''),
-        county: String(record['County'] || record['county'] || record['COUNTY'] || ''),
-        zip: String(record['Zip'] || record['zip'] || record['ZIP'] || record['Zip Code'] || ''),
-      }
+interface ColumnMapping {
+  name: string
+  address: string
+  city: string
+  county: string
+  zip: string
+  state: string
+  licenseType: string
+  vertical: string
+}
+
+function extractWithMapping(record: RawRecord, mapping: ColumnMapping) {
+  return {
+    name: String(record[mapping.name] || '').trim(),
+    address: mapping.address ? String(record[mapping.address] || '').trim() : '',
+    city: mapping.city ? String(record[mapping.city] || '').trim() : '',
+    county: mapping.county ? String(record[mapping.county] || '').trim() : '',
+    zip: mapping.zip ? String(record[mapping.zip] || '').trim().slice(0, 5) : '',
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { records, sourceType, importId } = await request.json() as {
+    const { records, sourceType, importId, columnMapping } = await request.json() as {
       records: RawRecord[]
       sourceType: SourceType
       importId: string
+      columnMapping?: ColumnMapping
     }
 
     let classified = 0
@@ -69,12 +44,26 @@ export async function POST(request: NextRequest) {
 
     for (const record of records) {
       try {
+        // If we have a column mapping, remap the record to standard field names for the classifier
+        let classifierRecord = record
+        if (columnMapping?.licenseType) {
+          classifierRecord = {
+            ...record,
+            'License Type': record[columnMapping.licenseType],
+            'Premises Name': record[columnMapping.name],
+          }
+        }
+
         const classification =
           sourceType === 'ABC'
-            ? classifyAbc(record)
-            : classifyGeneric(record, sourceType as GenericSourceType)
+            ? classifyAbc(classifierRecord)
+            : classifyGeneric(classifierRecord, sourceType as GenericSourceType)
 
-        const addr = extractAddress(record, sourceType)
+        // Extract address using mapping if provided, otherwise fall back to old logic
+        const addr = columnMapping
+          ? extractWithMapping(record, columnMapping)
+          : extractFallback(record, sourceType)
+
         const siteId = ulid()
 
         await db.insert(sites).values({
@@ -83,7 +72,7 @@ export async function POST(request: NextRequest) {
           address: addr.address,
           city: addr.city,
           county: addr.county,
-          zip: addr.zip.slice(0, 5),
+          zip: addr.zip,
           vertical: classification.vertical,
           subVertical: classification.subVertical,
           confidence: classification.confidence,
@@ -94,7 +83,10 @@ export async function POST(request: NextRequest) {
           id: ulid(),
           siteId,
           sourceName: sourceType,
-          sourceRecordId: String(record['License Number'] || record['FACID'] || record['CDSCode'] || ''),
+          sourceRecordId: String(
+            record[columnMapping?.licenseType || 'License Number'] ||
+            record['FACID'] || record['CDSCode'] || ''
+          ),
           rawData: JSON.stringify(record),
         })
 
@@ -112,5 +104,23 @@ export async function POST(request: NextRequest) {
       { error: `Batch import failed: ${(err as Error).message}` },
       { status: 500 },
     )
+  }
+}
+
+function extractFallback(record: RawRecord, sourceType: SourceType) {
+  const tryFields = (...fields: string[]) => {
+    for (const f of fields) {
+      const val = record[f]
+      if (val) return String(val).trim()
+    }
+    return ''
+  }
+
+  return {
+    name: tryFields('Premises Name', 'FACILITY NAME', 'Facility Name', 'Name', 'name', 'School', 'Store Name', 'SNAP Store Name', 'BUS_NAME', 'DBA_NAME'),
+    address: tryFields('Premises Address', 'ADDRESS', 'Address', 'address', 'Street', 'PREM_ADDR'),
+    city: tryFields('City', 'CITY', 'city', 'PREM_CITY'),
+    county: tryFields('County', 'COUNTY', 'county', 'CNTY'),
+    zip: tryFields('Zip Code', 'ZIP', 'Zip', 'zip', 'ZipCode', 'PREM_ZIP', 'Postal Code').slice(0, 5),
   }
 }
