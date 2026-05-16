@@ -10,6 +10,7 @@ import { SiteTable, type SiteRow } from '@/components/prospecting/site-table'
 import { SiteMap } from '@/components/prospecting/site-map'
 import { ViewToggle, type ViewMode } from '@/components/prospecting/view-toggle'
 import { ExportButton } from '@/components/prospecting/export-button'
+import { VERTICAL_MAP } from '@/components/prospecting/vertical-tabs'
 
 interface SitesResponse {
   sites: SiteRow[]
@@ -60,7 +61,8 @@ export default function ProspectingPage() {
         params.set('search', filters.search)
       }
       if (vertical && vertical !== 'All') {
-        params.set('vertical', vertical)
+        const dbValues = VERTICAL_MAP[vertical]
+        if (dbValues) params.set('vertical', dbValues.join(','))
       }
       params.set('page', String(page))
       params.set('limit', String(limit))
@@ -94,31 +96,17 @@ export default function ProspectingPage() {
       params.set('limit', '1')
       params.set('page', '1')
 
-      // We need counts per vertical — fetch All to get total,
-      // then individual verticals. For efficiency, do "All" fetch
-      // and parse the total from it
-      const verticals = [
-        'Restaurants',
-        'Bars',
-        'Healthcare',
-        'Schools',
-        'Housing',
-        'Hotels',
-        'Grocery',
-        'Other',
-      ]
-
       const counts: Record<string, number> = {}
 
-      const promises = verticals.map(async (v) => {
+      const promises = Object.entries(VERTICAL_MAP).map(async ([displayName, dbValues]) => {
         const p = new URLSearchParams(params)
-        p.set('vertical', v)
+        p.set('vertical', dbValues.join(','))
         const res = await fetch(`/api/sites?${p.toString()}`)
         if (res.ok) {
           const json = await res.json()
-          counts[v] = json.total
+          counts[displayName] = json.total
         } else {
-          counts[v] = 0
+          counts[displayName] = 0
         }
       })
 
@@ -169,7 +157,8 @@ export default function ProspectingPage() {
       params.set('search', filters.search)
     }
     if (vertical && vertical !== 'All') {
-      params.set('vertical', vertical)
+      const dbValues = VERTICAL_MAP[vertical]
+      if (dbValues) params.set('vertical', dbValues.join(','))
     }
     return params
   }, [filters, vertical])

@@ -3,17 +3,18 @@
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-const VERTICALS = [
-  'All',
-  'Restaurants',
-  'Bars',
-  'Healthcare',
-  'Schools',
-  'Housing',
-  'Hotels',
-  'Grocery',
-  'Other',
-] as const
+export const VERTICAL_MAP: Record<string, string[]> = {
+  Restaurants: ['restaurant'],
+  Bars: ['bar'],
+  Healthcare: ['healthcare', 'assisted_living'],
+  Schools: ['school'],
+  Housing: ['housing', 'apartment'],
+  Hotels: ['hotel'],
+  Grocery: ['grocery', 'liquor'],
+  Other: ['other', 'warehouse'],
+}
+
+const VERTICALS = ['All', ...Object.keys(VERTICAL_MAP)] as const
 
 export type Vertical = (typeof VERTICALS)[number]
 

@@ -36,9 +36,14 @@ export async function GET(request: NextRequest) {
     conditions.push(eq(sites.county, county))
   }
 
-  // Vertical filter
+  // Vertical filter (comma-separated DB values)
   if (vertical && vertical !== 'All') {
-    conditions.push(eq(sites.vertical, vertical))
+    const verts = vertical.split(',').map(v => v.trim()).filter(Boolean)
+    if (verts.length === 1) {
+      conditions.push(eq(sites.vertical, verts[0]))
+    } else if (verts.length > 1) {
+      conditions.push(or(...verts.map(v => eq(sites.vertical, v)))!)
+    }
   }
 
   // Sub-vertical filter
