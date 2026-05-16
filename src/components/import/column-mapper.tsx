@@ -34,12 +34,12 @@ interface ColumnMapperProps {
 
 const REQUIRED_FIELDS = [
   { key: 'name', label: 'Site Name', hint: 'Business or facility name', required: true },
-  { key: 'address', label: 'Address', hint: 'Street address', required: true },
-  { key: 'city', label: 'City', hint: '', required: true },
-  { key: 'zip', label: 'ZIP Code', hint: '5-digit ZIP', required: true },
 ]
 
 const OPTIONAL_FIELDS = [
+  { key: 'address', label: 'Address', hint: 'Street address', required: false },
+  { key: 'city', label: 'City', hint: '', required: false },
+  { key: 'zip', label: 'ZIP Code', hint: '5-digit ZIP', required: false },
   { key: 'county', label: 'County', hint: '', required: false },
   { key: 'state', label: 'State', hint: 'Usually CA', required: false },
   { key: 'licenseType', label: 'License Type', hint: 'For ABC data', required: false },
@@ -50,26 +50,29 @@ const AUTO_MATCH_PATTERNS: Record<string, RegExp[]> = {
   name: [
     /dba\s*name/i, /dba/i,
     /premises\s*name/i, /primary\s*name/i,
-    /bus(iness)?\s*name/i, /facility\s*name/i,
-    /store\s*name/i, /company/i, /^name$/i, /school/i,
+    /facility[_\s]*name/i, /facname/i,
+    /bus(iness)?\s*name/i, /store\s*name/i,
+    /company/i, /^name$/i, /school/i,
     /snap\s*store/i, /hud\s*property/i, /project\s*name/i,
   ],
   address: [
-    /prem\s*addr/i, /premises\s*addr/i,
+    /facility[_\s]*addr/i, /prem\s*addr/i, /premises\s*addr/i,
     /^address$/i, /street/i, /^addr$/i, /location/i,
   ],
-  city: [/prem\s*city/i, /premises\s*city/i, /^city$/i],
-  county: [/prem\s*county/i, /^county$/i, /^cnty$/i],
+  city: [/facility[_\s]*city/i, /prem\s*city/i, /premises\s*city/i, /^city$/i],
+  county: [/county[_\s]*name/i, /prem\s*county/i, /^county$/i, /^cnty$/i],
   zip: [
-    /prem\s*zip/i, /premises\s*zip/i,
+    /facility[_\s]*zip/i, /prem\s*zip/i, /premises\s*zip/i,
     /^zip\s*code$/i, /^zip$/i, /postal/i, /^zipcode$/i,
   ],
-  state: [/prem\s*state/i, /^state$/i],
+  state: [/facility[_\s]*state/i, /prem\s*state/i, /^state$/i],
   licenseType: [
     /license\s*type/i, /lic\s*type/i, /type\s*code/i, /lic_type/i,
   ],
   vertical: [
-    /^category$/i, /^vertical$/i, /^classification$/i, /facility\s*type/i,
+    /facility[_\s]*type/i, /fac[_\s]*fdr/i,
+    /^category$/i, /^vertical$/i, /^classification$/i,
+    /bed[_\s]*capacity[_\s]*type/i,
   ],
 }
 

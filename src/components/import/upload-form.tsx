@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Upload, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { ColumnMapper, type ColumnMapping, autoMatchHeaders } from './column-mapper'
+import * as XLSX from 'xlsx'
 
 interface PreviewData {
   sourceType: string
@@ -51,7 +52,7 @@ const SOURCE_OPTIONS = [
   { value: 'PHA', label: 'PHA' },
 ]
 
-const REQUIRED_KEYS = ['name', 'address', 'city', 'zip']
+const REQUIRED_KEYS = ['name']
 const BATCH_SIZE = 200
 
 interface UploadFormProps {
@@ -90,7 +91,18 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
     setError(null)
 
     try {
-      const text = await file.text()
+      let text: string
+      const isExcel = /\.xlsx?$/i.test(file.name)
+
+      if (isExcel) {
+        const buffer = await file.arrayBuffer()
+        const wb = XLSX.read(buffer, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        text = XLSX.utils.sheet_to_csv(ws)
+      } else {
+        text = await file.text()
+      }
+
       setCsvText(text)
 
       const parsed = parseFirstRows(text, 5)
@@ -223,7 +235,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
             Upload CSV
           </CardTitle>
           <CardDescription>
-            Upload a CSV file. Columns are auto-detected — you only map manually if needed.
+            Upload a CSV or Excel file. Columns are auto-detected.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -234,7 +246,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
                 <Input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   onChange={handleFileChange}
                   className="cursor-pointer"
                   disabled={step === 'importing'}
