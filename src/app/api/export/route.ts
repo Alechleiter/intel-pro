@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get('status')
   const search = searchParams.get('search')
   const ids = searchParams.get('ids')
+  const chainId = searchParams.get('chainId')
 
   const conditions = []
 
@@ -24,6 +25,11 @@ export async function GET(request: NextRequest) {
     if (idList.length > 0) {
       conditions.push(inArray(sites.id, idList))
     }
+  }
+
+  // Filter by chain
+  if (chainId) {
+    conditions.push(eq(sites.chainId, chainId))
   }
 
   // ZIP filter: comma-separated list
