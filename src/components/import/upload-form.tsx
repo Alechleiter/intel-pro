@@ -72,6 +72,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
   const [progress, setProgress] = useState({ current: 0, total: 0, classified: 0, needsReview: 0, errors: 0 })
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [headerIdx, setHeaderIdx] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,6 +96,7 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
       const parsed = parseFirstRows(text, 5)
       setHeaders(parsed.headers)
       setSampleRows(parsed.rows)
+      setHeaderIdx(parsed.headerIdx)
 
       const autoMapping = autoMatchHeaders(parsed.headers)
       const allRequiredMapped = REQUIRED_KEYS.every(k => autoMapping[k])
@@ -138,15 +140,16 @@ export function UploadForm({ onPreview, onImportComplete }: UploadFormProps) {
 
     try {
       const lines = text.split('\n')
-      const dataLines = lines.slice(1).filter(line => line.trim().length > 0)
+      const hIdx = findHeaderLine(lines)
+      const dataLines = lines.slice(hIdx + 1).filter(line => line.trim().length > 0)
       const totalRecords = dataLines.length
 
       if (totalRecords === 0) {
         throw new Error('No records found in CSV')
       }
 
-      const headerLine = lines[0]
-      const parsedHeaders = parseCSVLine(headerLine)
+      const headerLine = lines[hIdx]
+      const parsedHeaders = parseCSVLine(headerLine).map(h => h.trim())
       const sourceType = sourceOverride !== 'auto' ? sourceOverride : detectSource(parsedHeaders)
 
       const importRes = await fetch('/api/import', {
@@ -357,12 +360,23 @@ function detectSource(headers: string[]): string {
   return 'UNKNOWN'
 }
 
+function findHeaderLine(lines: string[]): number {
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    const parsed = parseCSVLine(lines[i])
+    if (parsed.length >= 3 && parsed.some(h => /addr|name|city|zip|county|license|facid|code/i.test(h.trim()))) {
+      return i
+    }
+  }
+  return 0
+}
+
 function parseFirstRows(csvText: string, n: number) {
   const lines = csvText.split('\n')
-  const headers = parseCSVLine(lines[0])
+  const headerIdx = findHeaderLine(lines)
+  const headers = parseCSVLine(lines[headerIdx]).map(h => h.trim())
   const rows: Record<string, string>[] = []
 
-  for (let i = 1; i <= Math.min(n, lines.length - 1); i++) {
+  for (let i = headerIdx + 1; i <= Math.min(headerIdx + n, lines.length - 1); i++) {
     if (!lines[i]?.trim()) continue
     const values = parseCSVLine(lines[i])
     const row: Record<string, string> = {}
@@ -372,13 +386,13 @@ function parseFirstRows(csvText: string, n: number) {
     rows.push(row)
   }
 
-  return { headers, rows }
+  return { headers, rows, headerIdx }
 }
 
 function parseCsvBatch(csvText: string): Record<string, string | number | null>[] {
   const lines = csvText.split('\n')
   if (lines.length < 2) return []
-  const headers = parseCSVLine(lines[0])
+  const headers = parseCSVLine(lines[0]).map(h => h.trim())
   const records: Record<string, string | number | null>[] = []
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()

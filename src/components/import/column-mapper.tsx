@@ -48,21 +48,23 @@ const OPTIONAL_FIELDS = [
 
 const AUTO_MATCH_PATTERNS: Record<string, RegExp[]> = {
   name: [
-    /premises\s*name/i, /bus(iness)?\s*name/i, /facility\s*name/i,
-    /store\s*name/i, /dba/i, /company/i, /^name$/i, /school/i,
+    /dba\s*name/i, /dba/i,
+    /premises\s*name/i, /primary\s*name/i,
+    /bus(iness)?\s*name/i, /facility\s*name/i,
+    /store\s*name/i, /company/i, /^name$/i, /school/i,
     /snap\s*store/i, /hud\s*property/i, /project\s*name/i,
   ],
   address: [
-    /premises\s*addr/i, /^address$/i, /street/i, /^addr$/i,
-    /prem.*addr/i, /location/i,
+    /prem\s*addr/i, /premises\s*addr/i,
+    /^address$/i, /street/i, /^addr$/i, /location/i,
   ],
-  city: [/^city$/i, /premises\s*city/i, /prem.*city/i],
-  county: [/^county$/i, /^cnty$/i],
+  city: [/prem\s*city/i, /premises\s*city/i, /^city$/i],
+  county: [/prem\s*county/i, /^county$/i, /^cnty$/i],
   zip: [
-    /^zip\s*code$/i, /^zip$/i, /postal/i, /premises\s*zip/i,
-    /prem.*zip/i, /^zipcode$/i,
+    /prem\s*zip/i, /premises\s*zip/i,
+    /^zip\s*code$/i, /^zip$/i, /postal/i, /^zipcode$/i,
   ],
-  state: [/^state$/i],
+  state: [/prem\s*state/i, /^state$/i],
   licenseType: [
     /license\s*type/i, /lic\s*type/i, /type\s*code/i, /lic_type/i,
   ],
@@ -76,14 +78,19 @@ export function autoMatchHeaders(headers: string[]): Partial<ColumnMapping> {
   const used = new Set<string>()
 
   for (const [field, patterns] of Object.entries(AUTO_MATCH_PATTERNS)) {
-    for (const header of headers) {
-      const trimmed = header.trim()
-      if (used.has(trimmed)) continue
-      if (patterns.some(p => p.test(trimmed))) {
-        mapping[field] = header
-        used.add(trimmed)
-        break
+    let matched = false
+    for (const pattern of patterns) {
+      for (const header of headers) {
+        const trimmed = header.trim()
+        if (used.has(trimmed)) continue
+        if (pattern.test(trimmed)) {
+          mapping[field] = trimmed
+          used.add(trimmed)
+          matched = true
+          break
+        }
       }
+      if (matched) break
     }
   }
 
