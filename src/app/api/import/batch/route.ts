@@ -19,14 +19,36 @@ interface ColumnMapping {
   vertical: string
 }
 
-function extractWithMapping(record: RawRecord, mapping: ColumnMapping) {
-  return {
-    name: String(record[mapping.name] || '').trim(),
-    address: mapping.address ? String(record[mapping.address] || '').trim() : '',
-    city: mapping.city ? String(record[mapping.city] || '').trim() : '',
-    county: mapping.county ? String(record[mapping.county] || '').trim() : '',
-    zip: mapping.zip ? String(record[mapping.zip] || '').trim().slice(0, 5) : '',
+function remapRecord(record: RawRecord, mapping: ColumnMapping): RawRecord {
+  const remapped: RawRecord = { ...record }
+
+  if (mapping.name) remapped['Premises Name'] = record[mapping.name]
+  if (mapping.address) remapped['Premises Address'] = record[mapping.address]
+  if (mapping.city) remapped['City'] = record[mapping.city]
+  if (mapping.county) remapped['County'] = record[mapping.county]
+  if (mapping.zip) remapped['Zip Code'] = record[mapping.zip]
+  if (mapping.state) remapped['State'] = record[mapping.state]
+  if (mapping.licenseType) remapped['License Type'] = record[mapping.licenseType]
+
+  return remapped
+}
+
+function extractAddress(record: RawRecord, mapping?: ColumnMapping) {
+  if (mapping) {
+    return {
+      name: val(record, mapping.name),
+      address: val(record, mapping.address),
+      city: val(record, mapping.city),
+      county: val(record, mapping.county),
+      zip: val(record, mapping.zip).slice(0, 5),
+    }
   }
+  return extractFallback(record)
+}
+
+function val(record: RawRecord, field: string): string {
+  if (!field) return ''
+  return String(record[field] || '').trim()
 }
 
 export async function POST(request: NextRequest) {
@@ -44,25 +66,19 @@ export async function POST(request: NextRequest) {
 
     for (const record of records) {
       try {
-        // If we have a column mapping, remap the record to standard field names for the classifier
-        let classifierRecord = record
-        if (columnMapping?.licenseType) {
-          classifierRecord = {
-            ...record,
-            'License Type': record[columnMapping.licenseType],
-            'Premises Name': record[columnMapping.name],
-          }
-        }
+        const classifierRecord = columnMapping ? remapRecord(record, columnMapping) : record
 
         const classification =
           sourceType === 'ABC'
             ? classifyAbc(classifierRecord)
             : classifyGeneric(classifierRecord, sourceType as GenericSourceType)
 
-        // Extract address using mapping if provided, otherwise fall back to old logic
-        const addr = columnMapping
-          ? extractWithMapping(record, columnMapping)
-          : extractFallback(record, sourceType)
+        const addr = extractAddress(record, columnMapping)
+
+        if (!addr.name) {
+          errors.push(`Skipped row: no site name`)
+          continue
+        }
 
         const siteId = ulid()
 
@@ -73,9 +89,9 @@ export async function POST(request: NextRequest) {
           city: addr.city,
           county: addr.county,
           zip: addr.zip,
-          vertical: classification.vertical,
-          subVertical: classification.subVertical,
-          confidence: classification.confidence,
+          vertical: classification.vertical || 'other',
+          subVertical: classification.subVertical || '',
+          confidence: classification.confidence || 'low',
           status: classification.needsReview ? 'needs_review' : 'active',
         })
 
@@ -107,11 +123,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function extractFallback(record: RawRecord, sourceType: SourceType) {
+function extractFallback(record: RawRecord) {
   const tryFields = (...fields: string[]) => {
     for (const f of fields) {
-      const val = record[f]
-      if (val) return String(val).trim()
+      const v = record[f]
+      if (v) return String(v).trim()
     }
     return ''
   }

@@ -11,7 +11,7 @@ import {
   SelectItem,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { ArrowRight, Wand2 } from 'lucide-react'
+import { ArrowRight, Wand2, CheckCircle2 } from 'lucide-react'
 
 export interface ColumnMapping {
   name: string
@@ -33,37 +33,55 @@ interface ColumnMapperProps {
 }
 
 const REQUIRED_FIELDS = [
-  { key: 'name', label: 'Site Name', hint: 'Business name, facility name, school name, etc.' },
-  { key: 'address', label: 'Address', hint: 'Street address' },
-  { key: 'city', label: 'City', hint: '' },
-  { key: 'zip', label: 'ZIP Code', hint: '5-digit ZIP' },
+  { key: 'name', label: 'Site Name', hint: 'Business or facility name', required: true },
+  { key: 'address', label: 'Address', hint: 'Street address', required: true },
+  { key: 'city', label: 'City', hint: '', required: true },
+  { key: 'zip', label: 'ZIP Code', hint: '5-digit ZIP', required: true },
 ]
 
 const OPTIONAL_FIELDS = [
-  { key: 'county', label: 'County', hint: '' },
-  { key: 'state', label: 'State', hint: 'Usually CA for all records' },
-  { key: 'licenseType', label: 'License Type', hint: 'ABC license type number (for ABC data)' },
-  { key: 'vertical', label: 'Vertical/Category', hint: 'If the data already has a category column' },
+  { key: 'county', label: 'County', hint: '', required: false },
+  { key: 'state', label: 'State', hint: 'Usually CA', required: false },
+  { key: 'licenseType', label: 'License Type', hint: 'For ABC data', required: false },
+  { key: 'vertical', label: 'Category', hint: 'If already categorized', required: false },
 ]
 
 const AUTO_MATCH_PATTERNS: Record<string, RegExp[]> = {
-  name: [/^(premises\s*name|bus(iness)?\s*name|facility\s*name|name|school|store\s*name|dba|doing\s*business|company)/i],
-  address: [/^(prem(ises)?\s*addr|address|street|addr|location)/i],
-  city: [/^(prem(ises)?\s*city|city)/i],
-  county: [/^(county|cnty)/i],
-  zip: [/^(zip|zip\s*code|postal|prem(ises)?\s*zip)/i],
-  state: [/^(state|st)/i],
-  licenseType: [/^(lic(ense)?\s*type|type\s*code|lic\s*typ)/i],
-  vertical: [/^(category|type|vertical|classification|facility\s*type)/i],
+  name: [
+    /premises\s*name/i, /bus(iness)?\s*name/i, /facility\s*name/i,
+    /store\s*name/i, /dba/i, /company/i, /^name$/i, /school/i,
+    /snap\s*store/i, /hud\s*property/i, /project\s*name/i,
+  ],
+  address: [
+    /premises\s*addr/i, /^address$/i, /street/i, /^addr$/i,
+    /prem.*addr/i, /location/i,
+  ],
+  city: [/^city$/i, /premises\s*city/i, /prem.*city/i],
+  county: [/^county$/i, /^cnty$/i],
+  zip: [
+    /^zip\s*code$/i, /^zip$/i, /postal/i, /premises\s*zip/i,
+    /prem.*zip/i, /^zipcode$/i,
+  ],
+  state: [/^state$/i],
+  licenseType: [
+    /license\s*type/i, /lic\s*type/i, /type\s*code/i, /lic_type/i,
+  ],
+  vertical: [
+    /^category$/i, /^vertical$/i, /^classification$/i, /facility\s*type/i,
+  ],
 }
 
 function autoMatchHeaders(headers: string[]): Partial<ColumnMapping> {
   const mapping: Partial<ColumnMapping> = {}
+  const used = new Set<string>()
 
   for (const [field, patterns] of Object.entries(AUTO_MATCH_PATTERNS)) {
     for (const header of headers) {
-      if (patterns.some(p => p.test(header.trim()))) {
+      const trimmed = header.trim()
+      if (used.has(trimmed)) continue
+      if (patterns.some(p => p.test(trimmed))) {
         mapping[field] = header
+        used.add(trimmed)
         break
       }
     }
@@ -77,9 +95,10 @@ export function ColumnMapper({ headers, sampleRows, onConfirm, onCancel }: Colum
   const [mapping, setMapping] = useState<Partial<ColumnMapping>>(() => autoMatched)
 
   const autoMatchCount = Object.keys(autoMatched).length
+  const requiredMapped = REQUIRED_FIELDS.filter(f => mapping[f.key]).length
 
   const updateMapping = (field: string, header: string | null) => {
-    setMapping(prev => ({ ...prev, [field]: !header || header === '_skip_' ? '' : header }))
+    setMapping(prev => ({ ...prev, [field]: !header || header === '__none__' ? '' : header }))
   }
 
   const isValid = REQUIRED_FIELDS.every(f => mapping[f.key])
@@ -90,8 +109,8 @@ export function ColumnMapper({ headers, sampleRows, onConfirm, onCancel }: Colum
   }
 
   const getPreviewValue = (header: string) => {
-    if (!header || !sampleRows[0]) return '—'
-    return String(sampleRows[0][header] || '').slice(0, 50) || '(empty)'
+    if (!header || !sampleRows[0]) return ''
+    return String(sampleRows[0][header] || '').slice(0, 60) || '(empty)'
   }
 
   return (
@@ -99,19 +118,34 @@ export function ColumnMapper({ headers, sampleRows, onConfirm, onCancel }: Colum
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Wand2 className="size-5" />
-          Map Columns
+          Map Your Columns
         </CardTitle>
         <CardDescription>
-          Match your CSV columns to the fields Intel Pro needs.
+          Tell us which CSV column matches each field.
           {autoMatchCount > 0 && (
             <Badge variant="secondary" className="ml-2">
-              {autoMatchCount} auto-matched
+              {autoMatchCount} auto-detected
             </Badge>
           )}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
+        <div className="space-y-5">
+          {/* Status bar */}
+          <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm">
+            {isValid ? (
+              <>
+                <CheckCircle2 className="size-4 text-green-600" />
+                <span className="text-green-700 dark:text-green-400">All required fields mapped — ready to import</span>
+              </>
+            ) : (
+              <>
+                <span className="font-medium">{requiredMapped} / {REQUIRED_FIELDS.length}</span>
+                <span className="text-muted-foreground">required fields mapped</span>
+              </>
+            )}
+          </div>
+
           {/* Required fields */}
           <div>
             <h4 className="mb-2 text-sm font-semibold">Required Fields</h4>
@@ -125,6 +159,7 @@ export function ColumnMapper({ headers, sampleRows, onConfirm, onCancel }: Colum
                   preview={getPreviewValue(mapping[field.key] || '')}
                   onChange={(v) => updateMapping(field.key, v)}
                   autoMatched={!!autoMatched[field.key]}
+                  required
                 />
               ))}
             </div>
@@ -143,23 +178,26 @@ export function ColumnMapper({ headers, sampleRows, onConfirm, onCancel }: Colum
                   preview={getPreviewValue(mapping[field.key] || '')}
                   onChange={(v) => updateMapping(field.key, v)}
                   autoMatched={!!autoMatched[field.key]}
+                  required={false}
                 />
               ))}
             </div>
           </div>
 
-          {/* Sample data preview */}
+          {/* Live preview */}
           {sampleRows.length > 0 && (
-            <div className="rounded border bg-muted/30 p-3">
-              <h4 className="mb-1 text-xs font-semibold text-muted-foreground">FIRST ROW PREVIEW</h4>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <h4 className="mb-2 text-xs font-semibold text-muted-foreground">PREVIEW — FIRST ROW WITH YOUR MAPPING</h4>
+              <div className="grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-2 sm:gap-x-4">
                 {REQUIRED_FIELDS.concat(OPTIONAL_FIELDS).map(f => {
                   const header = mapping[f.key]
-                  if (!header) return null
+                  const val = header ? getPreviewValue(header) : ''
                   return (
                     <div key={f.key} className="flex gap-2">
-                      <span className="font-medium text-muted-foreground">{f.label}:</span>
-                      <span className="truncate">{getPreviewValue(header)}</span>
+                      <span className="shrink-0 font-medium text-muted-foreground">{f.label}:</span>
+                      <span className={`truncate ${val ? '' : 'italic text-muted-foreground/50'}`}>
+                        {val || '(not mapped)'}
+                      </span>
                     </div>
                   )
                 })}
@@ -171,7 +209,7 @@ export function ColumnMapper({ headers, sampleRows, onConfirm, onCancel }: Colum
             <Button variant="outline" onClick={onCancel}>Cancel</Button>
             <Button onClick={handleConfirm} disabled={!isValid}>
               <ArrowRight className="size-4" />
-              Confirm Mapping & Import
+              Confirm & Start Import
             </Button>
             {!isValid && (
               <span className="self-center text-xs text-destructive">
@@ -192,6 +230,7 @@ function FieldRow({
   preview,
   onChange,
   autoMatched,
+  required,
 }: {
   field: { key: string; label: string; hint: string }
   headers: string[]
@@ -199,21 +238,29 @@ function FieldRow({
   preview: string
   onChange: (v: string | null) => void
   autoMatched: boolean
+  required: boolean
 }) {
+  const hasValue = value && value !== '__none__'
+
   return (
     <div className="flex items-center gap-3">
       <div className="w-32 shrink-0">
-        <div className="text-sm font-medium">{field.label}</div>
+        <div className="flex items-center gap-1 text-sm font-medium">
+          {field.label}
+          {required && <span className="text-destructive">*</span>}
+        </div>
         {field.hint && <div className="text-xs text-muted-foreground">{field.hint}</div>}
       </div>
       <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
       <div className="w-56">
-        <Select value={value || '_skip_'} onValueChange={onChange}>
-          <SelectTrigger className="w-full">
+        <Select value={value || '__none__'} onValueChange={onChange}>
+          <SelectTrigger className={`w-full ${required && !hasValue ? 'border-destructive/50' : ''}`}>
             <SelectValue placeholder="Select column..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="_skip_">— Skip —</SelectItem>
+            <SelectItem value="__none__">
+              {required ? '— Select a column —' : '— None —'}
+            </SelectItem>
             {headers.map(h => (
               <SelectItem key={h} value={h}>{h}</SelectItem>
             ))}
@@ -221,7 +268,7 @@ function FieldRow({
         </Select>
       </div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {value && value !== '_skip_' && <span className="truncate max-w-40">"{preview}"</span>}
+        {hasValue && <span className="truncate max-w-48">"{preview}"</span>}
         {autoMatched && <Badge variant="outline" className="text-xs">auto</Badge>}
       </div>
     </div>
