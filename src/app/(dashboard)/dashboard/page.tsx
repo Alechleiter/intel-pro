@@ -1,12 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   TerritoryFilter,
   type TerritoryFilters,
 } from '@/components/prospecting/territory-filter'
 import { VerticalTabs } from '@/components/prospecting/vertical-tabs'
 import { SiteTable, type SiteRow } from '@/components/prospecting/site-table'
+import { SiteMap } from '@/components/prospecting/site-map'
+import { ViewToggle, type ViewMode } from '@/components/prospecting/view-toggle'
+import { ExportButton } from '@/components/prospecting/export-button'
 
 interface SitesResponse {
   sites: SiteRow[]
@@ -29,6 +32,7 @@ export default function ProspectingPage() {
   const [sortColumn, setSortColumn] = useState('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [viewMode, setViewMode] = useState<ViewMode>('table')
 
   const [data, setData] = useState<SitesResponse>({
     sites: [],
@@ -152,6 +156,24 @@ export default function ProspectingPage() {
     }
   }
 
+  // Build filter params for the export button
+  const exportFilterParams = useMemo(() => {
+    const params = new URLSearchParams()
+    if (filters.zips.length > 0) {
+      params.set('zip', filters.zips.join(','))
+    }
+    if (filters.county) {
+      params.set('county', filters.county)
+    }
+    if (filters.search) {
+      params.set('search', filters.search)
+    }
+    if (vertical && vertical !== 'All') {
+      params.set('vertical', vertical)
+    }
+    return params
+  }, [filters, vertical])
+
   // Client-side sort since the API sorts by name
   const sortedSites = [...data.sites].sort((a, b) => {
     const col = sortColumn as keyof SiteRow
@@ -187,32 +209,68 @@ export default function ProspectingPage() {
         counts={verticalCounts}
       />
 
-      {/* Results count */}
+      {/* Results count + view toggle */}
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium">
           {loading ? 'Loading...' : `${data.total} sites found`}
         </p>
-        {selectedIds.size > 0 && (
-          <p className="text-sm text-muted-foreground">
-            {selectedIds.size} selected
-          </p>
-        )}
+        <div className="flex items-center gap-3">
+          {selectedIds.size > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {selectedIds.size} selected
+            </p>
+          )}
+          <ExportButton
+            filterParams={exportFilterParams}
+            selectedIds={selectedIds}
+          />
+          <ViewToggle view={viewMode} onViewChange={setViewMode} />
+        </div>
       </div>
 
-      {/* Data table */}
-      <SiteTable
-        sites={sortedSites}
-        page={data.page}
-        totalPages={data.totalPages}
-        total={data.total}
-        limit={limit}
-        onPageChange={setPage}
-        selectedIds={selectedIds}
-        onSelectionChange={setSelectedIds}
-        sortColumn={sortColumn}
-        sortDirection={sortDirection}
-        onSortChange={handleSortChange}
-      />
+      {/* Content area: table, map, or split */}
+      {viewMode === 'table' && (
+        <SiteTable
+          sites={sortedSites}
+          page={data.page}
+          totalPages={data.totalPages}
+          total={data.total}
+          limit={limit}
+          onPageChange={setPage}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          onSortChange={handleSortChange}
+        />
+      )}
+
+      {viewMode === 'map' && (
+        <div className="h-[calc(100vh-320px)] min-h-[400px]">
+          <SiteMap sites={sortedSites} />
+        </div>
+      )}
+
+      {viewMode === 'split' && (
+        <div className="space-y-4">
+          <div className="h-[calc(50vh-160px)] min-h-[300px]">
+            <SiteMap sites={sortedSites} />
+          </div>
+          <SiteTable
+            sites={sortedSites}
+            page={data.page}
+            totalPages={data.totalPages}
+            total={data.total}
+            limit={limit}
+            onPageChange={setPage}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSortChange={handleSortChange}
+          />
+        </div>
+      )}
     </div>
   )
 }
